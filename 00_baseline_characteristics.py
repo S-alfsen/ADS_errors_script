@@ -10,7 +10,6 @@ from pathlib import Path
 from publication_utils import (
     as_float,
     count_pct,
-    fmt_float,
     median,
     normalized_ascii,
     pct,
@@ -24,6 +23,10 @@ from publication_utils import (
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline-questionnaire", required=True, help="Baseline questionnaire CSV.")
+    parser.add_argument("--encounters", required=True, help="Submitted encounter forms for the analysis cohort.")
+    parser.add_argument("--participant-id-column", default="participant_id")
+    parser.add_argument("--clinician-id-column", default="clinician_id")
+    parser.add_argument("--specialty-column", default="specialty")
     parser.add_argument("--output-dir", required=True, help="Directory for aggregate outputs.")
     parser.add_argument("--profession-column", default="profession")
     parser.add_argument("--department-column", default="department")
@@ -60,7 +63,7 @@ def recode_department(value: object) -> str:
     text = text_key(value)
     if not text:
         return "Missing"
-    if "psyk" in text:
+    if "psyk" in text or "psych" in text:
         return "Psychiatric services"
     if "onkolog" in text or "oncolog" in text or "kreft" in text:
         return "Oncology"
@@ -132,6 +135,14 @@ SECTIONS = [
 def main() -> int:
     args = parse_args()
     rows = read_csv(args.baseline_questionnaire, args.delimiter)
+    encounters = read_csv(args.encounters, args.delimiter)
+    require_columns(encounters, [args.clinician_id_column, args.specialty_column], "encounters")
+    specialties = {}
+    for form in encounters:
+        clinician = form[args.clinician_id_column].strip()
+        specialty = recode_department(form[args.specialty_column])
+        if not clinician or specialties.setdefault(clinician, specialty) != specialty:
+            raise ValueError("Encounter forms must identify a clinician with a consistent specialty.")
     columns = {
         "profession": args.profession_column,
         "department": args.department_column,
@@ -140,12 +151,21 @@ def main() -> int:
         "language": args.language_column,
         "dialect": args.dialect_column,
     }
-    require_columns(rows, list(columns.values()) + [args.experience_column], "baseline-questionnaire")
+    require_columns(rows, list(columns.values()) + [args.experience_column, args.participant_id_column], "baseline-questionnaire")
+    rows = [row for row in rows if row[args.participant_id_column].strip() in specialties]
+    ids = [row[args.participant_id_column].strip() for row in rows]
+    if not ids or len(set(ids)) != len(ids):
+        raise ValueError("Expected one baseline response per matched clinician and at least one match.")
     denominator = len(rows)
 
     output_rows: list[dict[str, object]] = []
     for section, key, recode, levels in SECTIONS:
-        counts = Counter(recode(row.get(columns[key], "")) for row in rows)
+        counts = Counter()
+        for row in rows:
+            level = recode(row[columns[key]])
+            if key == "department" and level == "Other / unrecoded":
+                level = specialties[row[args.participant_id_column].strip()]
+            counts[level] += 1
         unexpected = sorted(set(counts) - set(levels))
         for level in levels + unexpected:
             if not counts.get(level, 0):
@@ -170,7 +190,7 @@ def main() -> int:
                 "count": len(experience),
                 "denominator": denominator,
                 "percent": "",
-                "display": f"{fmt_float(median(experience))} ({fmt_float(quantile(experience, 0.25))}-{fmt_float(quantile(experience, 0.75))})",
+                "display": f"{median(experience):.1f} ({quantile(experience, 0.25):.1f}–{quantile(experience, 0.75):.1f})",
             }
         )
 
