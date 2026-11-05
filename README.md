@@ -20,6 +20,14 @@ The default public column names are `clinician_id` and `specialty` for clinician
 
 ### `00_baseline_characteristics.py`
 
+For Table 1, supply the baseline export and the submitted encounter forms for the same analysis cohort:
+
+```sh
+python 00_baseline_characteristics.py --baseline-questionnaire baseline.csv --encounters encounters.csv --output-dir results
+```
+
+The script matches baseline `participant_id` to encounter `clinician_id` and counts each matched respondent once. In the study, 24 of the 28 clinicians who submitted forms completed the baseline questionnaire. The denominator is calculated from the matched records. When a baseline department description cannot be classified, the script uses that clinician's encounter specialty.
+
 | Research question | Data source | Method | Output |
 |---|---|---|---|
 | What were the baseline characteristics of participating clinicians (manuscript Table 1)? | Baseline questionnaire CSV. | Recodes profession, department, sex, age group, clinical language, and free-text dialect into the manuscript Table 1 categories and reports counts and percentages, plus median (IQR) years of clinical experience. | `baseline_characteristics_summary.csv` |
